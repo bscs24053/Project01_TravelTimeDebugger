@@ -43,36 +43,75 @@ class Stack
     int32_t count;
 
 public:
-    // Implement these functions:
     Stack()
-    { // initialize the stack
+    {
+        top = nullptr;
+        count = 0;
+    }
+    ~Stack()
+    {
+        while(!(isEmpty()))
+        {
+            pop();
+        }
     }
     void push(const T &val)
     {
-
-        // pushes the value on the stack if max limit is not reached yet.
+        if(count == MAX_STACK_DEPTH)
+        {
+            return;
+        }
+        else
+        {
+            Node *newNode = new Node;
+            newNode->data = val;
+            newNode->next = top;
+            top = newNode;
+            count++;
+        }
     }
     T pop()
     {
-        // pop the top value on the stack
+        Node *temp = top;
+        top = top->next;
+        T data = temp->data;
+        delete temp;
+        count--;
+        return data;
     }
     T &peek()
     {
-        // returns the top value on the stack
+       return top->data;
     }
     bool isEmpty()
     {
+        if(count == 0)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
     }
     int32_t depth()
     {
+        return count;
     }
     int32_t snapshot_into(T out[], int32_t maxLen)
     {
-        // copies every frame, top to bottom in the array given as a parameter
-        // this is what buildSnapshot() call, returns count written
+        Node *temp = top;
+        int32_t copied = 0;
+        while(temp!=nullptr && copied < maxLen)
+        {
+           out[copied] = temp->data;
+           temp = temp->next;
+           copied++;
+        }
+
+        return copied;
     }
 };
-
 
 // Timeline : doubly linked list of Snapshots
 struct Snapshot; // fwd declaration;
