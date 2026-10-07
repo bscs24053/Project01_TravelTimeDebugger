@@ -127,19 +127,38 @@ class Timeline
     int32_t stepCount;
 
 public:
-    // Implement these functions
     Timeline()
     {
+        head = nullptr;
+        tail = nullptr;
+        stepCount = 0;
     }
+    ~Timeline();    // body Snapshot ke baad likhi hai
     void record(Snapshot *s)
     {
-        // add record in the timeline
+        TimelineNode *newNode = new TimelineNode;
+        newNode->data = s;
+        newNode->next = nullptr;
+        newNode->prev = tail;
+
+        if (head == nullptr)
+        {
+            head = newNode;
+        }
+        else
+        {
+            tail->next = newNode;
+        }
+        tail = newNode;
+        stepCount++;
     }
     TimelineNode *begin()
     {
+        return head;
     }
     int32_t getStepCount()
     {
+        return stepCount;
     }
 };
 
@@ -163,6 +182,19 @@ struct Snapshot
     Frame callStack[MAX_STACK_DEPTH];
     int32_t stackDepth;
 };
+
+Timeline::~Timeline()
+{
+    TimelineNode *temp = head;
+    while (temp != nullptr)
+    {
+        TimelineNode *nextNode = temp->next;
+        delete temp->data;
+        delete temp;
+        temp = nextNode;
+    }
+}
+
 struct TTDBHeader
 {
     char magic[4]; // "TTDB"
