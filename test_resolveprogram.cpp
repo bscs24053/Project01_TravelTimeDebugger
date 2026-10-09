@@ -296,11 +296,13 @@ int main()
     }
     fclose(f);
 
-        f = fopen("demo2.txt", "w");
+    f = fopen("demo2.txt", "w");
     fputs("func main\nset k 10\ncall foo k\nfunc_end\nfunc foo b\nadd b b\nfunc_end\n", f);
     fclose(f);
-    cout << "demo2 main offset = " << resolveProgram("demo2.txt", "demo2_resolve.bin") << endl;   // 0
+
+    cout << "demo2 main offset = " << resolveProgram("demo2.txt", "demo2_resolve.bin") << endl;   
     f = fopen("demo2_resolve.bin", "rb");
+
     while (true)
     {
         pos = ftell(f);
