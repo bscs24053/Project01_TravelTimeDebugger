@@ -45,9 +45,50 @@ Implementation: `Timeline`: doubly linked list with record (append at tail), beg
 
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/10/26
+Stage: Stage 1 (Pass 0x0)
+Implementation: `readSourceLine` (skips blank lines, strips `\r`), `firstWord`, `secondWord`, `validateProgram` (rejects nested `func`, unmatched `func_end`, missing `func_end`) | Done, tested (tests/test_validate.cpp) and then integrated into `server.cpp`
+Setup: Moved test files into `tests/` folder | Done
+
+# Status - Done
+
+## Design Decisions
+- Validation uses a single `isinsideFunc` flag, no stack is needed because nested functions are not allowed
+
+## Known Issues
+- Pass 0x0 only validates `func`/`func_end` structure. Instructions outside a function are not rejected. They are never executed because execution starts at `main`.
+
+# Next Steps
+- Pass 0x1: resolve.bin writer/reader and CALL patching
+- Tokenizer and Pass 0x2 execution
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
+
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/10/26
+Stage: Stage 2 (Pass 0x1)
+Implementation: `writeResolveRecord` (writes [offset 8B][size 4B][text], returns record start position), `readResolveRecord`(reads one record, returns offset field, -1 on EOF/corrupt record) | In progress, tested (test_resolve.cpp), not yet integrated into `server.cpp`
+
+# Status - In progress
+
+## Design Decisions
+- Every record's offset field is written as 0 only `call` records get patched later. Line text is never modified, so record sizes never change.
+- Record's own position is obtained with `ftell` and returned by `writeResolveRecord`.
+- `resolveProgram` error codes: -1 = no main, -2 = call to undefined function, -3 = file error or limit exceeded (MAX_FUNCS / MAX_PATCHES)
+
+# Next Steps
+- `resolveProgram`: write all lines, record FuncEntry / PendingPatch, patch CALL offsets
+- Tokenizer and Pass 0x2 execution
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
