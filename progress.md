@@ -115,6 +115,51 @@ Setup: `main()` now checks what resolve returns and prints an error message | Do
 # --------------------------------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/10/26
+Stage: Stage 3 (Pass 0x2), prerequisite
+Implementation: `tokenizeLine` splits a line into words. The first word is the instruction (KEYWORD), the second is the name (IDENTIFIER), and the rest are values (PARAM). It ignores extra spaces and tabs. `parseInt` changes text like "10" into a number, without using `stoi`. | Done, tested (test_tokenizer.cpp), then added to `server.cpp`
+Testing: normal lines, extra spaces and tabs, 16 params (works), 17 params (gives -1), and numbers like 10, -5, abc, empty text, "-", 99999999999, 12x
+
+# Status - Done
+
+## Design Decisions
+- `tokenizeLine` returns -1 if there are too many tokens (more than 16 params). Execution will report an error instead of crashing
+- `parseInt` returns false for bad or too big numbers, so `set a abc` will not crash.
+
+# Next Steps
+- Pass 0x2 execution (`buildSnapshot`, `executeProgram`)
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Issues Faced and Fixes
 - 2026-10-07: Compiled binary `test_stack` was committed by mistake. Fixed with `git rm --cached` and a `.gitignore` rule
 - 2026-10-07: `undefined reference to main` while compiling the test: the file had not been saved in VS Code. Fixed by saving and re-running.

@@ -524,11 +524,105 @@ struct Token
 };
 int32_t tokenizeLine(const string &line, Token tokens[], int32_t maxTokens)
 {
+    int32_t count = 0;
+    int i = skipSpaces(line, 0);
+
+    while (i < (int)line.size())
+    {
+        string word = "";
+
+        while(i < (int)line.size() && line[i] != ' ' && line[i] != '\t')
+        {
+            word = word + line[i];
+            i++;
+        }
+
+        if(count >= maxTokens)
+        {
+            return -1;
+        }
+
+        tokens[count].text = word;
+
+        if(count == 0)
+        {
+            tokens[count].type = KEYWORD;
+        }
+
+        else if(count == 1)
+        {
+            tokens[count].type = IDENTIFIER;
+        }
+
+        else
+        {
+            tokens[count].type = PARAM;
+        }
+
+        count++;
+
+        i = skipSpaces(line, i);
+    }
+    return count;
+}
+
+bool parseInt(const string &s, int32_t &out)
+{
+    if(s.empty())
+    {
+        return false;
+    }
+
+    int i = 0;
+    bool negative = false;
+    
+    if(s[0] == '-' || s[0] == '+')
+    {
+        negative = (s[0] == '-');
+        i = 1;
+    }
+
+    if (i >= (int)s.size())
+    {
+        return false;  
+    }
+
+    int64_t value = 0;
+
+    for(; i < (int)s.size(); i++)
+    {
+        if(s[i] < '0' || s[i] > '9')
+        {
+            return false;
+        }
+
+        value = value * 10 + (s[i] - '0');
+
+        if(value > 2147483648LL)
+        {
+            return false;   
+        }
+    }
+
+    if(negative)
+    {
+        value = -value;
+    }
+
+    if(value > 2147483647LL || value < -2147483648LL)
+    {
+        return false;
+    }
+
+    out = (int32_t)value;
+
+    return true;
+}
     // first word is always a instruction keyword
     // instruction set = [func, func_end, call, set, add, sub, mul and div]
     // next word is identifier like name of a function, variable name
     // after identifier all are the params/arg, space separated
-}
+
 Snapshot *buildSnapshot(Stack<Frame> &callStack)
 {
     // build the snapshot based on the callStack given
