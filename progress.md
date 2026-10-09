@@ -91,6 +91,28 @@ Implementation: `writeResolveRecord` (writes [offset 8B][size 4B][text], returns
 # --------------------------------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/10/26
+Stage: Stage 2 (Pass 0x1)
+Implementation: `resolveProgram` (writes every line to resolve.bin, saves function names and call positions, then fixes the call offsets, returns main's offset) | Done, tested (test_resolveprogram.cpp)
+Integration: `writeResolveRecord`, `readResolveRecord` and `resolveProgram` are now in `server.cpp` | Done
+Setup: `main()` now checks what resolve returns and prints an error message | Done
+
+# Status - Done
+
+## Design Decisions
+- If two functions have the same name, we stop with an error, because a call would not know which one to use.
+- `validateProgram` only returns true or false. `main()` prints the error message.
+
+## Known Issues
+- `fseek`/`ftell` use `long`, which is 32-bit on Windows. We need a 64-bit version when we port to Windows.
+
+# Next Steps
+- Tokenizer and Pass 0x2 execution
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
 
 
 ## Issues Faced and Fixes

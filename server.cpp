@@ -401,6 +401,105 @@ int64_t resolveProgram(const char *sourcePath, const char *resolveBinPath)
     int32_t funcCount = 0;
     PendingPatch patches[MAX_PATCHES];
     int32_t patchCount = 0;
+
+    ifstream in(sourcePath);
+
+    if (!in.is_open())
+    {
+        return -3;
+    }
+
+    FILE *out = fopen(resolveBinPath, "w+b");
+
+    if (out == nullptr)
+    {
+        return -3;
+    }
+
+    string line;
+
+    while (readSourceLine(in, line))
+    {
+        int64_t position = writeResolveRecord(out, 0, line);
+        if (position < 0)
+        {
+            fclose(out);
+            return -3;
+        }
+
+        string kw = firstWord(line);
+
+        if (kw == "func")
+        {
+            if (funcCount >= MAX_FUNCS)
+            {
+                fclose(out);
+                return -3;
+            }
+
+            string name = secondWord(line);
+
+            for (int32_t i = 0; i < funcCount; i++)
+            {
+                if (funcArray[i].funcName == name)
+                {
+                    fclose(out);
+                    return -3;
+                }
+            }
+
+            funcArray[funcCount].funcName = name;
+            funcArray[funcCount].byteOffsetInResolveBin = position;
+            funcCount++;
+        }
+        else if (kw == "call")
+        {
+            if (patchCount >= MAX_PATCHES)
+            {
+                fclose(out);
+                return -3;
+            }
+
+            patches[patchCount].byteOffsetOfOffsetField = position;
+            patches[patchCount].targetFuncName = secondWord(line);
+            patchCount++;
+        }
+    }
+
+    for (int32_t p = 0; p < patchCount; p++)
+    {
+        int64_t target = -1;
+        for (int32_t i = 0; i < funcCount; i++)
+        {
+            if(funcArray[i].funcName == patches[p].targetFuncName)
+            {
+                target = funcArray[i].byteOffsetInResolveBin;
+                break;
+            }
+        }
+
+        if(target < 0)
+        {
+            fclose(out);
+            return -2;
+        }
+
+        fseek(out, (long)patches[p].byteOffsetOfOffsetField, SEEK_SET);
+        fwrite(&target, sizeof(int64_t), 1, out);
+    }
+
+    fclose(out);
+
+    for (int32_t i = 0; i < funcCount; i++)
+    {
+        if (funcArray[i].funcName == "main")
+        {
+            return funcArray[i].byteOffsetInResolveBin;
+        }
+    }
+    return -1;
+
+
     // Every source line becomes one record holding the raw line, as-is.
     // resolve() only PEEKS at the leading word(s) -- enough to spot FUNC
     // (remember its position) and CALL (remember which function it needs
@@ -456,14 +555,30 @@ void writeTdbg(Timeline &timeline, const char *tdbgPath)
 // main section
 int32_t main()
 {
-
     if (!validateProgram("source.bin"))
     {
-        // send an error response instead of a .tdbg file
+        cerr << "Error: invalid program (file missing, nested func, or unmatched func/func_end)" << endl;
         return 1;
     }
 
     int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
+
+    if (mainOffset < 0)
+    {
+        if (mainOffset == -1)
+        {
+            cerr << "Error: no main function found" << endl;
+        }
+        else if (mainOffset == -2)
+        {
+            cerr << "Error: call to undefined function" << endl;
+        }
+        else
+        {
+            cerr << "Error: resolve failed (file error, limit exceeded, or duplicate function)" << endl;
+        }
+        return 1;
+    }
 
     Timeline timeline;
     executeProgram("resolve.bin", mainOffset, timeline);
