@@ -625,7 +625,10 @@ bool parseInt(const string &s, int32_t &out)
 
 Snapshot *buildSnapshot(Stack<Frame> &callStack)
 {
-    // build the snapshot based on the callStack given
+    Snapshot *s = new Snapshot;
+    s->stackDepth = callStack.snapshot_into(s->callStack, MAX_STACK_DEPTH);
+    return s;
+
 }
 void executeProgram(const char *resolveBinPath, int64_t mainOffset, Timeline &timeline)
 {
