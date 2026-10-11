@@ -3,3 +3,8 @@ build/
 *.tdbg
 test_*
 !test_*.cpp
+demo*.txt
+dup.txt
+empty.txt
+nomain.txt
+undef.txt
