@@ -135,14 +135,69 @@ Testing: normal lines, extra spaces and tabs, 16 params (works), 17 params (give
 # --------------------------------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 11/10/26
+Stage: Stage 3 (Pass 0x2), prerequisite
+Implementation: `buildSnapshot` makes a new Snapshot on the heap and copies the whole call stack into it | Done, tested (test_snapshot.cpp), then added to `server.cpp`
+Testing: 2 frames (order, locals, args, returnLine), snapshot stays the same when the stack changes later, empty stack gives depth 0
+
+# Status - Done
+
+## Design Decisions
+- Snapshot order: `callStack[0]` is the function running now, the last entry is `main`.
+- A variable that was never set gives an error (it is not treated as 0).
+
+# Next Steps
+- `executeProgram` (set/add/sub/mul/div in main, then call and func_end)
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 11/10/26
+Stage: Stage 3 (Pass 0x2)
+Implementation: `findVar` this looks for a variable in the current function, `getValue` a number or a variable's value, `executeProgram` part 1 runs `set`, `add`, `sub`, `mul`, `div` in `main` and takes a snapshot after each line| In progress, tested (test_execute.cpp), not yet in `server.cpp`
+Testing: 6 normal lines give 7 snapshot with correct values
+error cases: divide by zero, variable not set, bad line, unknown instruction
+
+# Status - In progress
+
+## Design Decisions
+- Snapshot is taken after every executed line (set/add/sub/mul/div, call, func_end). Not taken for the `func main` header line
+- `set`, `add`, `sub`, `mul`, `div` accept a number or a variable name as the value. The number is tried first.
+- `executeProgram` returns int32_t: 0 = ok, -1 = file problem, -2 = bad line, -3 = variable not found, -4 = divide by zero, -5 = more than 16 variables.
+
+# Next Steps
+- `call` and `func_end` for other functions (pass by reference)
+- Add `executeProgram` to `server.cpp` and check its result in `main()`
+- Pass 0x3 serialization
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 12/10/26
+Stage: Stage 3 (Pass 0x2)
+Implementation: `executeProgram` now also handles `call` and `func_end`. `call` makes a new frame and copies the argument values into it. `func_end` removes the frame, copies the final values back to the caller's variables (pass by reference), and jumps back to the line after the `call`. | Done, tested (test_execute.cpp), then added to `server.cpp`
+Testing: PDF demo (k becomes 20) is tested, number argument, nested calls (k becomes 11), recursion too deep, wrong argument count, variable not set
+Setup: `main()` now checks the result of `executeProgram` and prints an error | Done
 
+# Status - Done
 
+## Design Decisions
+- `returnLine` is the byte position in resolve.bin of the line after the `call`
+- If an argument is a number like call foo 5, nothing is copied back, because there is no variable
+- Error codes: -6 = wrong number of arguments, -7 = call stack deeper than 64
 
+## Known Issues
+- The error messages are printed on screen. They will be sent to the client in the Receive stage
 
-
-
+# Next Steps
+- Pass 0x3 serialization (`writeTdbg`)
+- Receive stage (socket) and error responses
+- Windows build and test
+# --------------------------------------------------------------------------------------------------------------------
 
 
 

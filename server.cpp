@@ -630,15 +630,297 @@ Snapshot *buildSnapshot(Stack<Frame> &callStack)
     return s;
 
 }
-void executeProgram(const char *resolveBinPath, int64_t mainOffset, Timeline &timeline)
-{
-    // initialize the call stack
-    // make the main frame
-    // push main frame on the call stack
 
-    // implementation:
-    // execute line by line, and according to the keyword perform action
+Variable *findVar(Frame &frame, const string &name)
+{
+    for (int32_t i = 0; i < frame.argc; i++)
+    {
+        if (frame.argv[i].name == name)
+        {
+            return &frame.argv[i];
+        }
+    }
+    for (int32_t i = 0; i < frame.localCount; i++)
+    {
+        if (frame.locals[i].name == name)
+        {
+            return &frame.locals[i];
+        }
+    }
+    return nullptr;
 }
+
+bool getValue(Frame &frame1, const string &text, int32_t &out)
+{
+    if (parseInt(text, out))
+    {
+        return true;
+    }
+
+    Variable *v = findVar(frame1, text);
+
+    if (v == nullptr)
+    {
+        return false;
+    }
+
+    out = v->value;
+
+    return true;
+}
+
+
+int32_t executeProgram(const char *resolveBinPath, int64_t mainOffset, Timeline &timeline)
+{
+    FILE *file= fopen(resolveBinPath, "rb");
+
+    if(file == nullptr)
+    {
+        return -1;
+    }
+
+    Stack<Frame> callStack;
+    string argNames[MAX_STACK_DEPTH + 1][MAX_VARS_PER_FRAME];
+
+    fseek(file, (long)mainOffset, SEEK_SET);
+    string line;
+
+    if(readResolveRecord(file, line) == -1)
+    {
+        fclose(file);
+
+        return -1;
+    }
+
+    Frame mainFrame;
+    mainFrame.func_name = secondWord(line);
+    mainFrame.argc = 0;
+    mainFrame.returnLine = -1;
+    mainFrame.localCount = 0;
+    callStack.push(mainFrame);
+
+    int64_t off;
+
+    while((off = readResolveRecord(file, line)) != -1)
+    {
+        Token tokens[MAX_TOKENS];
+        int32_t n = tokenizeLine(line, tokens, MAX_TOKENS);
+
+        if(n < 1)
+        {
+            fclose(file);
+
+            return -2;
+        }
+
+        string keyword = tokens[0].text;
+
+        if(keyword == "func_end")
+        {
+            if(callStack.depth() == 1)
+            {
+                timeline.record(buildSnapshot(callStack));
+                break;
+            }
+
+            int32_t calleeDepth = callStack.depth();
+            Frame callee = callStack.pop();
+            Frame &caller = callStack.peek();
+
+            for(int32_t i = 0; i < callee.argc; i++)
+            {
+                if(argNames[calleeDepth][i] != "")
+                {
+                    Variable *v = findVar(caller, argNames[calleeDepth][i]);
+
+                    if(v != nullptr)
+                    {
+                        v->value = callee.argv[i].value;
+                    }
+                }
+            }
+
+            fseek(file, (long)callee.returnLine, SEEK_SET);
+            timeline.record(buildSnapshot(callStack));
+        }
+
+        else if (keyword == "call")
+        {
+            if(n < 2)
+            {
+                fclose(file);
+                return -2;
+            }
+
+            if(callStack.depth() >= MAX_STACK_DEPTH)
+            {
+                fclose(file);
+
+                return -7;
+            }
+
+            int32_t argCount = n - 2;
+            int64_t returnPos = ftell(file);  
+            fseek(file, (long)off, SEEK_SET);
+            string funcLine;
+
+            if (readResolveRecord(file, funcLine) == -1)
+            {
+                fclose(file);
+                return -1;
+            }
+
+            Token funcTokens[MAX_TOKENS];
+            int32_t fn = tokenizeLine(funcLine, funcTokens, MAX_TOKENS);
+
+            if(n < 2 || funcTokens[0].text != "func")
+            {
+                fclose(file);
+
+                return -1;
+            }
+
+            int32_t paramCount = fn - 2;
+
+            if(paramCount != argCount)
+            {
+                fclose(file);
+
+                return -6;
+            }
+
+            Frame &caller = callStack.peek();
+            Frame newFrame;
+            newFrame.func_name = funcTokens[1].text;
+            newFrame.argc = paramCount;
+            newFrame.returnLine = (int32_t)returnPos;
+            newFrame.localCount = 0;
+
+            int32_t newDepth = callStack.depth() + 1;
+
+            for(int32_t i = 0; i < paramCount; i++)
+            {
+                string argText = tokens[2 + i].text;
+                int32_t value;
+
+                if(parseInt(argText, value))
+                {
+                    argNames[newDepth][i] = "";   
+                }
+
+                else
+                {
+                    Variable *v = findVar(caller, argText);
+
+                    if(v == nullptr)
+                    {
+                        fclose(file);
+
+                        return -3;
+                    }
+
+                    value = v->value;
+                    argNames[newDepth][i] = argText;
+                }
+
+                newFrame.argv[i].name = funcTokens[2 + i].text;
+                newFrame.argv[i].value = value;
+            }
+
+            callStack.push(newFrame);
+            timeline.record(buildSnapshot(callStack));
+        }
+
+        else if (keyword == "set" || keyword == "add" || keyword == "sub" || keyword == "mul" || keyword == "div")
+        {
+            if(n != 3)
+            {
+                fclose(file);
+
+                return -2;
+            }
+
+            Frame &cur = callStack.peek();
+            int32_t value;
+
+            if(!getValue(cur, tokens[2].text, value))
+            {
+                fclose(file);
+
+                return -3;
+            }
+
+            Variable *target = findVar(cur, tokens[1].text);
+
+            if (keyword == "set")
+            {
+                if (target == nullptr)
+                {
+                    if (cur.localCount >= MAX_VARS_PER_FRAME)
+                    {
+                        fclose(file);
+                        return -5;
+                    }
+                    target = &cur.locals[cur.localCount];
+                    target->name = tokens[1].text;
+                    cur.localCount++;
+                }
+                target->value = value;
+            }
+
+            else
+            {
+                if(target == nullptr)
+                {
+                    fclose(file);
+                    return -3;
+                }
+
+                if(keyword == "add")
+                {
+                    target->value = target->value + value;
+                }
+
+                else if(keyword == "sub")
+                {
+                    target->value = target->value - value;
+                }
+
+                else if(keyword == "mul")
+                {
+                    target->value = target->value * value;
+                }
+
+                else
+                {
+                    if(value == 0)
+                    {
+                        fclose(file);
+
+                        return -4;
+                    }
+
+                    target->value = target->value / value;
+                }
+            }
+
+            timeline.record(buildSnapshot(callStack));
+        }
+
+        else
+        {
+            fclose(file);
+
+            return -2;
+        }
+    }
+
+    fclose(file);
+
+    return 0;
+}
+
+
 
 // PASS 0x3: SERIALIZE TIMELINE
 void writeTdbg(Timeline &timeline, const char *tdbgPath)
@@ -678,7 +960,47 @@ int32_t main()
     }
 
     Timeline timeline;
-    executeProgram("resolve.bin", mainOffset, timeline);
+    int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
+
+    if(rc != 0)
+    {
+        if(rc == -1)
+        {
+            cerr << "Error: resolve.bin is unreadable or corrupt" << endl;
+        }
+
+        else if(rc == -2)
+        {
+            cerr << "Error: bad line or unknown instruction" << endl;
+        }
+
+        else if(rc == -3)
+        {
+            cerr << "Error: variable used before it was set" << endl;
+        }
+
+        else if(rc == -4)
+        {
+            cerr << "Error: divide by zero" << endl;
+        }
+
+        else if(rc == -5)
+        {
+            cerr << "Error: more than 16 variables in one function" << endl;
+        }
+
+        else if(rc == -6)
+        {
+            cerr << "Error: call has a different number of arguments than the function has params" << endl;
+        }
+
+        else if(rc == -7)
+        {
+            cerr << "Error: call stack too deep (more than 64)" << endl;
+        }
+        
+        return 1;
+    }
 
     writeTdbg(timeline, "session.tdbg");
 
