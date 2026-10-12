@@ -26,7 +26,9 @@ const int32_t MAX_TOKENS = MAX_VARS_PER_FRAME + 2; // kW + func_name + upto 16 p
 const int32_t MAX_PATCHES = MAX_FUNCS * 4;
 const uint64_t MAX_SOURCE_BYTES = 15ULL * 1024 * 1024; // sanity cap on the declared file length
 const int32_t IO_BUFFER_SIZE = 64 * 1024;                  // fixed buffer for streaming to/from disk
-const int32_t SOCKET_TIMEOUT_SEC = 5;                      // TODO: apply as SO_RCVTIMEO so a deadclient can't hang the server forever
+const int32_t SOCKET_TIMEOUT_SEC = 5;        
+const int32_t TDBG_VERSION = 1;
+const int32_t HEADER_SIZE = 20;               // TODO: apply as SO_RCVTIMEO so a deadclient can't hang the server forever
 
 // ---- Custom data structures
 
@@ -773,7 +775,7 @@ int32_t executeProgram(const char *resolveBinPath, int64_t mainOffset, Timeline 
             Token funcTokens[MAX_TOKENS];
             int32_t fn = tokenizeLine(funcLine, funcTokens, MAX_TOKENS);
 
-            if(n < 2 || funcTokens[0].text != "func")
+            if(fn < 2 || funcTokens[0].text != "func")
             {
                 fclose(file);
 
@@ -920,89 +922,451 @@ int32_t executeProgram(const char *resolveBinPath, int64_t mainOffset, Timeline 
     return 0;
 }
 
-
-
 // PASS 0x3: SERIALIZE TIMELINE
-void writeTdbg(Timeline &timeline, const char *tdbgPath)
+bool writeInt32(FILE *file, int32_t v)
 {
-    // placeholder for header
-    // index array of the size of stepcount from the timeline
-    // placing each snapshot in the file while maintaining the index(starting point of each nth snapshot)
-    // after timeline add the index array i the file
-    // update the header
+    return fwrite(&v, sizeof(int32_t), 1, file) == 1;
+}
+
+bool writeInt64(FILE *file, int64_t v)
+{
+    return fwrite(&v, sizeof(int64_t), 1, file) == 1;
+}
+
+bool writeString(FILE *file, const string &s)
+{
+    int32_t len = (int32_t)s.size();
+
+    if(!writeInt32(file, len))
+    {
+        return false;
+    }
+
+    if(len > 0 && fwrite(s.c_str(), 1, len, file) != (size_t)len)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool writeVariable(FILE *file, const Variable &v)
+{
+    return writeString(file, v.name) && writeInt32(file, v.value);
+}
+
+bool writeFrame(FILE *file, const Frame &fr)
+{
+    if(!writeString(file, fr.func_name)) 
+    {
+        return false;
+    }
+
+    if(!writeInt32(file, fr.argc)) {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.argc; i++)
+    {
+        if (!writeVariable(file, fr.argv[i])) 
+        {
+            return false;
+        }
+    }
+
+    if(!writeInt32(file, fr.returnLine)) 
+    {
+        return false;
+    }
+
+    if(!writeInt32(file, fr.localCount)) 
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.localCount; i++)
+    {
+        if (!writeVariable(file, fr.locals[i])) 
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool writeSnapshot(FILE *file, const Snapshot &s)
+{
+    if(!writeInt32(file, s.stackDepth)) 
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < s.stackDepth; i++)
+    {
+        if(!writeFrame(file, s.callStack[i])) 
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool writeHeaderFull(FILE *file, const TTDBHeader &h)
+{
+    if(fwrite(h.magic, 1, 4, file) != 4) 
+    {
+        return false;
+    }
+
+    if(!writeInt32(file, h.version)) 
+    {
+        return false;
+    }
+
+    if(!writeInt32(file, h.stepCount)) 
+    {
+        return false;
+    }
+
+    if(!writeInt64(file, h.indexOffset)) 
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool writeTdbg(Timeline &timeline, const char *tdbgPath)
+{
+    FILE *file = fopen(tdbgPath, "wb");
+
+    if (file == nullptr)
+    {
+        return false;
+    }
+
+    int32_t steps = timeline.getStepCount();
+    TTDBHeader h;
+
+    h.magic[0] = 'T'; 
+    h.magic[1] = 'T'; 
+    h.magic[2] = 'D'; 
+    h.magic[3] = 'B';
+    h.version = TDBG_VERSION;
+    h.stepCount = 0;
+    h.indexOffset = 0;
+
+    if(!writeHeaderFull(file, h))
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    int64_t *index = new int64_t[steps > 0 ? steps : 1];
+    int32_t i = 0;
+
+    for (TimelineNode *n = timeline.begin(); n != nullptr; n = n->next)
+    {
+        index[i] = (int64_t)ftell(file);
+
+        if(!writeSnapshot(file, *(n->data)))
+        {
+            delete[] index;
+            fclose(file);
+
+            return false;
+        }
+
+        i++;
+    }
+
+    int64_t indexStart = (int64_t)ftell(file);
+
+    for(int32_t k = 0; k < steps; k++)
+    {
+        if(!writeInt64(file, index[k]))
+        {
+            delete[] index;
+            fclose(file);
+
+            return false;
+        }
+    }
+
+    delete[] index;
+
+    h.stepCount = steps;
+    h.indexOffset = indexStart;
+
+    fseek(file, 0, SEEK_SET);
+
+    if(!writeHeaderFull(file, h))
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    fclose(file);
+
+    return true;
+}
+
+bool readInt32(FILE *file, int32_t &v)
+{
+    return fread(&v, sizeof(int32_t), 1, file) == 1;
+}
+
+bool readInt64(FILE *file, int64_t &v)
+{
+    return fread(&v, sizeof(int64_t), 1, file) == 1;
+}
+
+bool readString(FILE *file, string &s)
+{
+    int32_t len;
+
+    if(!readInt32(file, len)) 
+    {
+        return false;
+    }
+
+    if(len < 0 || len > 1024 * 1024) 
+    {
+        return false;
+    }
+
+    s = "";
+
+    for(int32_t i = 0; i < len; i++)
+    {
+        int c = fgetc(file);
+
+        if(c == EOF) 
+        {
+            return false;
+        }
+
+        s += (char)c;
+    }
+    return true;
+}
+
+bool readVariable(FILE *file, Variable &v)
+{
+    return readString(file, v.name) && readInt32(file, v.value);
+}
+
+bool readFrame(FILE *file, Frame &fr)
+{
+    if(!readString(file, fr.func_name)) 
+    {
+        return false;
+    }
+
+    if(!readInt32(file, fr.argc)) 
+    {
+        return false;
+    }
+
+    if (fr.argc < 0 || fr.argc > MAX_VARS_PER_FRAME) 
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.argc; i++)
+    {
+        if (!readVariable(file, fr.argv[i])) 
+        {
+            return false;
+        }
+    }
+    if(!readInt32(file, fr.returnLine)) 
+    {
+        return false;
+    }
+
+    if(!readInt32(file, fr.localCount)) 
+    {
+        return false;
+    }
+
+    if (fr.localCount < 0 || fr.localCount > MAX_VARS_PER_FRAME) 
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.localCount; i++)
+    {
+        if(!readVariable(file, fr.locals[i])) 
+        {
+            return false;
+        }
+
+    }
+
+    return true;
+}
+
+bool readSnapshot(FILE *file, Snapshot &s)
+{
+    if (!readInt32(file, s.stackDepth)) 
+    {
+        return false;
+    }
+
+    if (s.stackDepth < 0 || s.stackDepth > MAX_STACK_DEPTH) 
+    {
+        return false;
+    }
+
+    for (int32_t i = 0; i < s.stackDepth; i++)
+    {
+        if (!readFrame(file , s.callStack[i])) 
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool readSnapshotAt(const char *path, int32_t n, Snapshot &out, int32_t &totalSteps)
+{
+    FILE *file = fopen(path, "rb");
+
+    if(file == nullptr) 
+    {
+        return false;
+    }
+
+    char magic[4];
+    int32_t version, steps;
+    int64_t indexOffset;
+
+    if(fread(magic, 1, 4, file) != 4 || !readInt32(file, version) ||!readInt32(file, steps) || !readInt64(file, indexOffset))
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    if(magic[0] != 'T' || magic[1] != 'T' || magic[2] != 'D' || magic[3] != 'B')
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    totalSteps = steps;
+
+    if(n < 0 || n >= steps)
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    fseek(file, (long)(indexOffset + (int64_t)n * 8), SEEK_SET);
+
+    int64_t snapPos;
+
+    if (!readInt64(file, snapPos))
+    {
+        fclose(file);
+
+        return false;
+    }
+
+    fseek(file, (long)snapPos, SEEK_SET);
+    bool ok = readSnapshot(file, out);
+
+    fclose(file);
+
+    return ok;
 }
 // main section
-int32_t main()
+int main()
 {
     if (!validateProgram("source.bin"))
     {
         cerr << "Error: invalid program (file missing, nested func, or unmatched func/func_end)" << endl;
+        // TODO (Receive stage): send this error to the client instead of printing
         return 1;
     }
-
+ 
     int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
-
+ 
     if (mainOffset < 0)
     {
         if (mainOffset == -1)
         {
             cerr << "Error: no main function found" << endl;
         }
+ 
         else if (mainOffset == -2)
         {
             cerr << "Error: call to undefined function" << endl;
         }
+ 
         else
         {
             cerr << "Error: resolve failed (file error, limit exceeded, or duplicate function)" << endl;
         }
+ 
         return 1;
     }
-
+ 
     Timeline timeline;
     int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
-
-    if(rc != 0)
+ 
+    if (rc != 0)
     {
-        if(rc == -1)
+        if (rc == -1)
         {
             cerr << "Error: resolve.bin is unreadable or corrupt" << endl;
         }
-
-        else if(rc == -2)
+ 
+        else if (rc == -2)
         {
             cerr << "Error: bad line or unknown instruction" << endl;
         }
-
-        else if(rc == -3)
+ 
+        else if (rc == -3)
         {
             cerr << "Error: variable used before it was set" << endl;
         }
-
-        else if(rc == -4)
+ 
+        else if (rc == -4)
         {
             cerr << "Error: divide by zero" << endl;
         }
-
-        else if(rc == -5)
+ 
+        else if (rc == -5)
         {
             cerr << "Error: more than 16 variables in one function" << endl;
         }
-
-        else if(rc == -6)
+ 
+        else if (rc == -6)
         {
             cerr << "Error: call has a different number of arguments than the function has params" << endl;
         }
-
-        else if(rc == -7)
+ 
+        else if (rc == -7)
         {
             cerr << "Error: call stack too deep (more than 64)" << endl;
         }
-        
+ 
         return 1;
     }
-
-    writeTdbg(timeline, "session.tdbg");
-
+ 
+    if (!writeTdbg(timeline, "session.tdbg"))
+    {
+        cerr << "Error: could not write session.tdbg" << endl;
+        return 1;
+    }
+ 
     return 0;
 }
