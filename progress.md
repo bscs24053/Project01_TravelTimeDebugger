@@ -201,9 +201,51 @@ Setup: `main()` now checks the result of `executeProgram` and prints an error | 
 
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 12/10/26
+Stage: Stage 4 (Pass 0x3)
+Implementation: `writeTdbg` saves the timeline into a file. The file has a header, then all the snapshots, then a list that says where each snapshot starts. I write the header first with empty values and fill it in at the end. I also wrote `readSnapshotAt`, which reads any one snapshot directly using that list. `main()` now runs all the passes one after another and checks the result of each. | Done, tested (test_tdbg.cpp), then added to `server.cpp`
+Testing: PDF demo written and read back (6 steps, same values as when it ran), file with wrong magic, step number too big, empty timeline, and error cases run through `./server`
 
+# Status - Done
 
+## Design Decisions
+- The spec only says "write the Snapshot structs", so I made my own file format. Text is saved as its length (int32) and then its bytes. Only the frames that are in use (`stackDepth`) are saved, not all 64. The header is 20 bytes: magic, version (1), stepCount, indexOffset. Each index entry is an int64.
+- Every value is written one by one, so the file is the same on Windows and Linux.
 
+## Known Issues
+- `argNames` in `executeProgram` is a big array on the stack. It may need to move to the heap on Windows.
+# --------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 12/10/26
+Stage: Stage 4 (Pass 0x3)
+Implementation: `writeTdbg` saves the timeline into a file. The file has a header, then all the snapshots, then a list that says where each snapshot starts. I write the header first with empty values and fill it in at the end. I also wrote `readSnapshotAt`, which reads any one snapshot directly using that list. `main()` now runs all the passes one after another and checks the result of each. | Done, tested (test_tdbg.cpp), then added to `server.cpp`
+Testing: demo written and read back (6 steps, same values as when it ran), file with wrong magic, step number too big, empty timeline, and error cases run through `./server`
+
+# Status - Done
+
+## Design Decisions
+- The document only says "write the Snapshot structs", so I made my own file format. Text is saved as its length (int32) and then its bytes. Only the frames that are in use (`stackDepth`) are saved, not all 64. The header is 20 bytes: magic, version (1), stepCount, indexOffset. Each index entry is an int64
+- Every value is written one by one, so the file is the same on Windows and Linux
+
+# --------------------------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 13/10/26
+Stage: Testing and documentation
+Implementation: Ran the full server on many edge cases and saved them in `tests/edge_cases.sh`. Wrote `README.md`. I have skipped the receive stage (socket) for now, because we were told to assume that `source.bin` already exists
+Testing: empty file, Windows line endings (\r\n), blank lines and tabs, unknown instruction, recursion deeper than 64, duplicate function, wrong argument count, 16 params (works), 17 params (error), 17 variables (error), no main, undefined call, nested func, divide by zero, variable not set. All gave the right message and no crash
+Setup: Removed the unused socket includes (needed for the Windows build) | Done
+
+# Status - Done
+
+## Design Decisions
+- Receive stage is not done in this phase because we assume that we have a source.bin file
+
+## Known Issues
+- Windows build is not tested yet
+- `fseek`/`ftell` use `long` (32-bit on Windows) - this is only a problem for files that are larger than 2gb.
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
