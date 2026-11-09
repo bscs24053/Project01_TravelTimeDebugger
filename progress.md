@@ -247,6 +247,22 @@ Setup: Removed the unused socket includes (needed for the Windows build) | Done
 - `fseek`/`ftell` use `long` (32-bit on Windows) - this is only a problem for files that are larger than 2gb.
 # --------------------------------------------------------------------------------------------------------------------
 
+Implementation:
+- Removed Linux-only headers so the code builds on Windows too.
+- Added SEEK64 / TELL64 so file positions work on both systems.
+- pop() and peek() on an empty stack now return a safe value.
+- Added a check that rejects source files bigger than 15 MB.
+Testing:
+- Compiled with -Wall -Wextra: no warnings.
+- All 15 edge cases in tests/edge_cases.sh pass.
+- PDF demo still gives k = 20. A 16 MB file is rejected.
+# Status - Done
+## Design Decisions
+- Used macros for the file position functions because Windows and Linux use different names.
+- The empty stack guard is only a safety net. The caller already checks the depth.
+## Known Issues
+- A line outside any function is not rejected in Pass 0x0.
+# -----------------------------------------------------------------------------------------------------------------
 
 
 

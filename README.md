@@ -55,9 +55,7 @@ All numbers are little endian, written one field at a time.
 
 ```
 Header (20 bytes): "TTDB" | version int32 (=1) | stepCount int32 | indexOffset int64
-Snapshot stream:   for each step -> stackDepth int32, then for each frame:
-                   func_name, argc, argc x (name, value), returnLine, localCount, localCount x (name, value)
-                   (a string = length int32 + bytes)
+Snapshot stream: for each step -> stackDepth int32, then for each frame: func_name, argc, argc x (name, value), returnLine, localCount, localCount x (name, value) (a string = length int32 + bytes)
 Index (at indexOffset): stepCount x int64, the start position of each snapshot
 ```
 
@@ -90,6 +88,7 @@ Index (at indexOffset): stepCount x int64, the start position of each snapshot
 ## Limits
 
 16 params/variables per function, 64 call depth, 128 functions.
+Source file: at most 15 MB.
 
 ## Tests
 
