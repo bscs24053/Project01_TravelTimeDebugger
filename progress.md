@@ -448,6 +448,22 @@ Testing: the demo file (6 steps, indexOffset 320), a file with the wrong magic, 
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, client - reading and printing snapshots
+Implementation: `readSnapshotAt` jumps to a snapshot using the index and reads it with the same order the server wrote it (stackDepth, then each frame: name, args, returnLine, locals). It returns a new `Snapshot`, or `nullptr` if the step number or the file is bad. `printSnapshot` shows the step number and the call stack, current function first. I tested this using a temp main.
+
+# Status - Done
+
+## Design Decisions
+- The client reads exactly the format written by the server, so the helper functions such as readString etc are the same as the server's
+- Counts read from the file (stackDepth, argc, localCount, string length) are checked, so a damaged file gives `nullptr` and does not crash the client
+
+## Next Steps
+- Session (`initSession`, `closeSession`), commands (`start`, `next`, `prv`, `jmp`), `runCommand`, `main` loop
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
+
 
 
 

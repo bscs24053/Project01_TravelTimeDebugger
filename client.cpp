@@ -371,8 +371,115 @@ void closeTdbg(TdbgReader &r)
 
     r.index.clear();
 }
+
+bool readInt32(FILE *f, int32_t &v)
+{
+    return fread(&v, sizeof(int32_t), 1, f) == 1;
+}
+
+bool readString(FILE *f, string &s)
+{
+    int32_t len;
+
+    if(!readInt32(f, len))
+    {
+        return false;
+    }
+
+    if (len < 0 || len > 1024 * 1024)
+    {
+        return false;
+    }
+
+    s = "";
+
+    for (int32_t i = 0; i < len; i++)
+    {
+        int c = fgetc(f);
+
+        if(c == EOF)
+        {
+            return false;
+        }
+
+        s += (char)c;
+    }
+    return true;
+}
+
+bool readVariable(FILE *f, Variable &v)
+{
+    return readString(f, v.name) && readInt32(f, v.value);
+}
+
+bool readFrame(FILE *f, Frame &fr)
+{
+    if(!readString(f, fr.func_name))
+    {
+        return false;
+    }
+
+    if(!readInt32(f, fr.argc) || fr.argc < 0 || fr.argc > MAX_VARS_PER_FRAME)
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.argc; i++)
+    {
+        if(!readVariable(f, fr.argv[i]))
+        {
+            return false;
+        }
+    }
+
+    if(!readInt32(f, fr.returnLine))
+    {
+        return false;
+    }
+
+    if(!readInt32(f, fr.localCount) || fr.localCount < 0 || fr.localCount > MAX_VARS_PER_FRAME)
+    {
+        return false;
+    }
+
+    for(int32_t i = 0; i < fr.localCount; i++)
+    {
+        if(!readVariable(f, fr.locals[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 Snapshot *readSnapshotAt(TdbgReader &r, int32_t step)
 {
+    if (r.fp == nullptr || step < 0 || step >= r.header.stepCount)
+    {
+        return nullptr;
+    }
+
+    fseeko(r.fp, (off_t)r.index[step], SEEK_SET);
+
+    Snapshot *s = new Snapshot;
+
+    if(!readInt32(r.fp, s->stackDepth) || s->stackDepth < 0 || s->stackDepth > MAX_STACK_DEPTH)
+    {
+        delete s;
+        return nullptr;
+    }
+
+    for(int32_t i = 0; i < s->stackDepth; i++)
+    {
+        if(!readFrame(r.fp, s->callStack[i]))
+        {
+            delete s;
+            return nullptr;
+        }
+    }
+
+    return s;
 }
 
 // =============================================================================================
@@ -425,6 +532,44 @@ bool cmdJmpPrv(DebugSession &s, int32_t n) { }
 
 void printSnapshot(int32_t step, int32_t totalSteps, const Snapshot &s)
 {
+    cout << "Step " << step << "/" << totalSteps << endl;
+    cout << "Call stack (current function first):" << endl;
+
+    for(int32_t d = 0; d < s.stackDepth; d++)
+    {
+        const Frame &fr = s.callStack[d];
+        cout << "  " << fr.func_name << "(";
+
+        bool first = true;
+
+        for(int32_t i = 0; i < fr.argc; i++)
+        {
+            if (!first)
+            {
+                cout << ", ";
+            }
+
+            cout << fr.argv[i].name << "=" << fr.argv[i].value;
+            first = false;
+        }
+        cout << ")";
+
+        if(fr.localCount > 0)
+        {
+            cout << "  locals: ";
+
+            for(int32_t i = 0; i < fr.localCount; i++)
+            {
+                if(i > 0)
+                {
+                    cout << ", ";
+                }
+                
+                cout << fr.locals[i].name << "=" << fr.locals[i].value;
+            }
+        }
+        cout << endl;
+    }
 }
 void printHelp()
 {
@@ -462,7 +607,6 @@ int main(int argc, char *argv[])
     // After the loop: closeSession(session) and return 0.
     // Never exit the loop because of an error. Only quit or the end of the input leaves it.
 
- 
     if(argc < 2)
     {
         cout << "usage: ./client <file.tdbg>" << endl;
@@ -478,12 +622,25 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    cout << "steps: " << r.header.stepCount << endl;
-    cout << "indexOffset: " << r.header.indexOffset << endl;
-    cout << "first offset: " << r.index[0] << endl;
-    cout << "last offset: " << r.index[r.index.size() - 1] << endl;
+    for(int32_t i = 0; i < r.header.stepCount; i++)
+    {
+        Snapshot *s = readSnapshotAt(r, i);
+
+        if(s == nullptr)
+        {
+            cout << "damaged .tdbg file at step " << i + 1 << endl;
+            break;
+        }
+
+        printSnapshot(i + 1, r.header.stepCount, *s);
+        delete s;
+    }
+
+    cout << "step 99: " << (readSnapshotAt(r, 99) == nullptr ? "nullptr (PASS)" : "FAIL") << endl;
+    cout << "step -1: " << (readSnapshotAt(r, -1) == nullptr ? "nullptr (PASS)" : "FAIL") << endl;
     
     closeTdbg(r);
+   
    
 
     

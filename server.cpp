@@ -1282,9 +1282,7 @@ bool processSource(string &err)
     }
 
     int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
-    Timeline timeline;
-    int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
-
+    
     if (mainOffset < 0)
     {
         if(mainOffset == -1)
@@ -1304,6 +1302,9 @@ bool processSource(string &err)
 
         return false;
     }
+
+    Timeline timeline;
+    int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
 
     if(rc != 0)
     {
