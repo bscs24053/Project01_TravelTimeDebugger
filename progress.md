@@ -264,11 +264,49 @@ Testing:
 - A line outside any function is not rejected in Pass 0x0.
 # -----------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 09/11/26
+# PHASE 02
+Stage: Phase 02, Step 1 (helper.h)
+Implementation: helper.h now holds the shared constants (MAX_VARS_PER_FRAME, MAX_STACK_DEPTH, IO_BUFFER_SIZE, MAX_SOURCE_BYTES), FuncEntry, PendingPatch, and the checksum code. Crc32 calculates CRC-32 piece by piece. TrailerChecker holds back the last 4 bytes of a stream and checks them against the CRC of everything before. sendAll, recvAll and sendStatusMessage are shared by the server, load balancer and client
+| Done, tested (tests/test_checksum.cpp)
+Testing: CRC of "123456789" is cbf43926, message fed in chunks of 1, 3, 7 and 64 bytes, flipped body byte, flipped trailer byte, stream shorter than 4 bytes => all pass
+
+# Status - Done
+
+## Design Decisions
+- Checksum method: CRC-32
+- The CRC also covers the status byte, so a wrong status byte is detected
+- The CRC is stored as 4 bytes, big endian, so it is the same on every machine
+- TrailerChecker always holds the last 4 bytes, because the end of the stream is only known when the connection closes. Because of this, a whole file never has to be loaded in memory
+
+## Known Issues
+- For now, im only working on making sure that the project runs on linux. In phase 01, i tried that it runs on both, linus and windows.
+
+# Next Steps
+- Move `Variable`, `Frame`, `Snapshot`, `TTDBHeader` into `helper.h`
+- Server Receive stage
+- Load balancer
+- Client
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, Step 2 (shared structs)
+Implementation: Moved Variable, Frame, Snapshot, TTDBHeader and the shared constants from server.cpp into helper.h
+Testing: server.cpp compiles with -Wall -Wextra with no warnings. All edge cases in tests/edge_cases.sh still pass. PDF demo still gives k = 20.
 
+# Status - Done
 
+## Design Decisions
+- Anything used by more than one of server, load balancer and client lives in helper.h => This makes sure the client reads the .tdbg file with exactly the same structs that the server wrote it with
+
+## Next Steps
+- Server Receive stage: turn Phase 01 main() into processSource(), then read source.bin from the socket
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
