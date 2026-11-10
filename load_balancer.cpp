@@ -37,6 +37,8 @@
 #include "helper.h"
 #include <cstdio>
 #include <ctime>
+
+
 using namespace std;
 
 
@@ -49,6 +51,8 @@ const int STARTUP_POLL_INTERVAL_MS = 100;  // wait between those tries (50 x 100
 int lbPort = 5000;
 string serverHost = "127.0.0.1";
 int serverPort = 5001;
+const int CLIENT_WAIT_LIMIT_SEC = 30;
+
 
 
 // ---- Queue: here it holds client sockets (int). ----
@@ -374,6 +378,54 @@ void acceptLoop(int listenSock)
     //   Otherwise enqueue the client socket.
     // Never wait for the server here, so new clients are always accepted quickly.
     // If accept() fails, print the error and keep going (do not end the thread).
+
+    while(flag)
+    {
+        sockaddr_in clientAddr = {};
+        socklen_t len = sizeof(clientAddr);
+        int sock = accept4(listenSock, (sockaddr *)&clientAddr, &len, SOCK_CLOEXEC);
+        
+        if(sock < 0)
+        {
+            if(!flag)
+            {
+                break;      
+            }
+        
+            perror("accept");
+            usleep(10000);  
+            continue;
+        }
+
+        ClientInfo info;
+        info.sock = sock;
+        char ip[INET_ADDRSTRLEN] = "";
+        inet_ntop(AF_INET, &clientAddr.sin_addr, ip, sizeof(ip));
+        info.address = ip;
+        info.port = ntohs(clientAddr.sin_port);
+        info.arrivedAt = time(nullptr);
+
+        bool full = false;
+        {
+            lock_guard<mutex> lock(queueMutex);
+
+            if(pendingClients.size() >= MAX_PENDING_CLIENTS)
+            {
+                full = true;
+            }
+            
+            else
+            {
+                pendingClients.enqueue(info);
+            }
+        }
+
+        if(full)
+        {
+            sendError(sock, "server busy, try again later");
+            close(sock);
+        }
+    }
 }
 void dispatcherLoop()
 {
@@ -381,6 +433,45 @@ void dispatcherLoop()
     // Repeat:
     //   Lock queueMutex, take ONE client out of the queue if there is one, unlock.
     //   If we got a client: call relayOneClient(). The next client is taken out of the queue only after this one is finished.
+
+    while (flag)
+    {
+        bool got = false;
+        ClientInfo c;
+
+        {
+            lock_guard<mutex> lock(queueMutex);
+
+            if(!pendingClients.isEmpty())
+            {
+                c = pendingClients.dequeue();
+                got = true;
+            }
+        }
+
+        if(!got)
+        {
+            usleep(10000);  
+            continue;
+        }
+
+        if(time(nullptr) - c.arrivedAt > CLIENT_WAIT_LIMIT_SEC)
+        {
+            close(c.sock);
+            continue;
+        }
+
+        relayOneClient(c);
+        close(c.sock); 
+    }
+
+    lock_guard<mutex> lock(queueMutex);
+
+    while(!pendingClients.isEmpty())
+    {
+        ClientInfo c = pendingClients.dequeue();
+        close(c.sock);
+    }
 }
 
 void handler(int sg) {
@@ -389,10 +480,26 @@ void handler(int sg) {
 }
 int main(int argc, char *argv[])
 {
+    if(argc >= 3)
+    {
+        serverHost = argv[1];
+        serverPort = atoi(argv[2]);
+    }
 
-    signal(SIGINT, handler); // whenever ctrl+c will be pressed to exit the program the flag wll be set so insead of using infinite loop you can loop on flag to safely close things and exit
-    // 2. listenSock = createListenSocket(LB_PORT).
-    // 3. Start a thread that runs acceptLoop(listenSock) and detach it.
-    // 4. Call dispatcherLoop().
+    signal(SIGINT, handler);   
+    signal(SIGPIPE, SIG_IGN);
+
+    int listenSock = createListenSocket(lbPort);
+
+    cout << "load balancer listening on port " << lbPort << ", server at " << serverHost << ":" << serverPort << endl;
+
+    thread acceptor(acceptLoop, listenSock);
+    acceptor.detach();
+
+    dispatcherLoop();
+
+    close(listenSock);
+    cout << "load balancer stopped" << endl;
+
     return 0;
 }

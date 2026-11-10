@@ -393,7 +393,24 @@ Testing: `-fsyntax-only` with -Wall -Wextra shows no warning for `relayOneClient
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, load balancer - threads and main
+Implementation: `acceptLoop` takes new clients and puts them in the queue. If 8 clients are already waiting, it sends "server busy, try again later" and closes that client. `dispatcherLoop` takes one client at a time, calls `relayOneClient`, then closes the client. A client that waited more than 30 seconds is closed with no reply in this way i have fixed the queue blockage problem. `main` reads the server ip and port, sets up Ctrl+C, starts the accept thread and runs the dispatcher. 
+Testing: server down (load balancer starts it), server already running, invalid program, wrong checksum, 5 clients at the same time, Ctrl+C stops the load balancer
 
+# Status - Done
+
+## Design Decisions
+- Ctrl+C sets `flag` to 0 using `signal(SIGINT, handler)`. The dispatcher checks `flag`, so the program ends
+- The queue lock is held only while using the queue. Errors are sent after the lock is released
+- Each socket is closed in one place only: `acceptLoop` closes a client it refuses, the dispatcher closes every other client
+- Clients are accepted with `accept4(..., SOCK_CLOEXEC)`, so the server started by `system()` does not keep the client's socket
+
+# Next Steps
+- Client
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
