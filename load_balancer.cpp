@@ -277,6 +277,85 @@ void relayOneClient(ClientInfo &c)
     // 5. Server -> client: repeat recv() from serverSock and sendAll() to clientSock.
     //    Stop when recv() returns 0 (the server sent its whole reply and closed) or fails.
     // 6. Close both sockets.
+
+    int serverSock = connectToServerWithWakeup();
+
+    if(serverSock < 0)
+    {
+        sendError(c.sock, "backend server failed to start");
+        return;
+    }
+
+    char buf[IO_BUFFER_SIZE];
+    char released[IO_BUFFER_SIZE];
+    TrailerChecker upload;
+    bool serverLost = false;
+
+    while(true)
+    {
+        ssize_t r = recv(c.sock, buf, sizeof(buf), 0);
+
+        if(r <= 0)
+        {
+            break;   
+        }
+
+        size_t n = upload.feed(buf, (size_t)r, released);
+
+        if(n > 0 && !sendAll(serverSock, released, n))
+        {
+            serverLost = true;
+            break;
+        }
+    }
+
+    if(serverLost)
+    {
+        sendError(c.sock, "backend server connection lost");
+        close(serverSock);
+        return;
+    }
+
+    bool uploadOk = upload.verify();
+
+    if(uploadOk)
+    {
+        sendAll(serverSock, (const char *)upload.trailerBytes(), 4);
+    }
+    shutdown(serverSock, SHUT_WR);   
+
+    if (!uploadOk)
+    {
+        sendError(c.sock, "upload checksum mismatch");
+        close(serverSock);
+        return;
+    }
+
+    TrailerChecker reply;
+
+    while(true)
+    {
+        ssize_t r = recv(serverSock, buf, sizeof(buf), 0);
+
+        if(r <= 0)
+        {
+            break; 
+        }
+
+        size_t n = reply.feed(buf, (size_t)r, released);
+
+        if(n > 0 && !sendAll(c.sock, released, n))
+        {
+            break;   
+        }
+    }
+
+    if(reply.verify())
+    {
+        sendAll(c.sock, (const char *)reply.trailerBytes(), 4);
+    }
+
+    close(serverSock);
 }
 
 
