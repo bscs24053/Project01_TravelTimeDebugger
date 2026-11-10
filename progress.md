@@ -370,6 +370,28 @@ Queue tested (tests/test_queue.cpp)
 # --------------------------------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02 load balancer - relay
+Implementation: relayOneClient serves one client. It connects to the server (starting it if needed), then copies the client's bytes to the server through a `TrailerChecker`. When the upload is finished it checks the checksum, and only a good upload gets its trailer forwarded. Then it half-closes the server socket and copies the server's reply back to the client, again through a `TrailerChecker`. The reply's trailer is sent only if the reply checksum is correct
+Testing: `-fsyntax-only` with -Wall -Wextra shows no warning for `relayOneClient`.
+
+# Status - Done
+
+## Design Decisions
+- The load balancer checks every stream while forwarding. If a check fails, it does not send the trailer, so the next receiver rejects the message. For a bad upload, the client gets the error "upload checksum mismatch" from the load balancer, and the server's reply is ignored.
+- Only 64 KB chunks are in memory at a time, the whole file is never loaded
+- `relayOneClient` closes only the server socket. The client socket is closed by `dispatcherLoop`, so each socket has exactly one owner
+- If the server connection breaks during the upload, the client gets "backend server connection lost".
+
+## Known Issues
+- For now, the relay has no timeout while it waits for the client's upload. A client that connects and sends nothing will block the queue. I will handle this thing in the next step
+
+# Next Steps
+- `acceptLoop`, `dispatcherLoop`, `main`, handle the queue blockage problem
+- Client
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
