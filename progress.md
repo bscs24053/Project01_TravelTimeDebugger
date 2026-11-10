@@ -464,6 +464,21 @@ Implementation: `readSnapshotAt` jumps to a snapshot using the index and reads i
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, client session and commands
+Implementation: `initSession` and `closeSession`, `showCurrent` (reads and prints the current step), `moveBy` (moves forward or backward, and refuses to go out of range), `cmdStart` (downloads, opens the new file, and only then replaces the old session), `cmdNext`, `cmdPrv`, `cmdJmpNext`, `cmdJmpPrv`. tested everything using a temp main
+Testing: command before any start, start with an invalid program, start with the demo, next, prv, jmp next, jmp prv, jump too far, prv at step 1, and a failed start keeps the old session
+
+# Status - Done
+
+## Design Decisions
+- Steps are shown from 1 (the first snapshot is step 1) but kept from 0 inside the program
+- Moving out of range prints a message and the current step does not change
+- The new .tdbg is downloaded into `ttdb_new.tdbg` first. Only after it opens correctly it replaces the old session and is renamed to `ttdb_last.tdbg`. This keeps the old session safe if the download fails
+
+--------------------------------------------------------------------------------------------------------------------
+
 
 
 
