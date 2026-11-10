@@ -21,6 +21,33 @@ struct PendingPatch
     string targetFuncName;
 };
 
+struct Variable
+{
+    string name;
+    int32_t value;
+};
+struct Frame
+{
+    string func_name;
+    int32_t argc;
+    Variable argv[MAX_VARS_PER_FRAME];
+    int32_t returnLine;
+    Variable locals[MAX_VARS_PER_FRAME];
+    int32_t localCount;
+};
+struct Snapshot
+{
+    Frame callStack[MAX_STACK_DEPTH];
+    int32_t stackDepth;
+};
+struct TTDBHeader
+{
+    char magic[4]; 
+    int32_t version;
+    int32_t stepCount;
+    int64_t indexOffset;
+};
+
 class Crc32
 {
     uint32_t state;

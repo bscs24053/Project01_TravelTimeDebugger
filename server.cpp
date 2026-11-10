@@ -12,20 +12,16 @@
 #include <fstream>
 #include <cstdio>
 using namespace std;
+#include "helper.h"
 
 // ---- Constants ----
-const int32_t MAX_VARS_PER_FRAME = 16;
-const int32_t MAX_STACK_DEPTH = 64;
 const int32_t MAX_FUNCS = 128;
-const int32_t MAX_TOKENS = MAX_VARS_PER_FRAME + 2; // kW + func_name + upto 16 params/args
-const int32_t MAX_PATCHES = MAX_FUNCS * 4;
-const uint64_t MAX_SOURCE_BYTES = 15ULL * 1024 * 1024; // sanity cap on the declared file length
-const int32_t IO_BUFFER_SIZE = 64 * 1024;              // fixed buffer for streaming to/from disk
-const int32_t SOCKET_TIMEOUT_SEC = 5;                  // for the Receive stage (not used in Phase 01)
+const int32_t MAX_TOKENS = 16 + 2; 
+const int32_t MAX_PATCHES = MAX_FUNCS * 4;          
+const int32_t SOCKET_TIMEOUT_SEC = 5;                
 const int32_t TDBG_VERSION = 1;
-const int32_t HEADER_SIZE = 20;                        // 4 + 4 + 4 + 8
+const int32_t HEADER_SIZE = 20;                        
 
-// ---- 64-bit file position helpers (same code on Windows and Linux) ----
 #ifdef _WIN32
 #define SEEK64(f, pos, origin) _fseeki64((f), (__int64)(pos), (origin))
 #define TELL64(f) ((int64_t)_ftelli64(f))
@@ -186,25 +182,6 @@ public:
     }
 };
 
-struct Variable
-{
-    string name;
-    int32_t value;
-};
-struct Frame
-{
-    string func_name;
-    int32_t argc;
-    Variable argv[MAX_VARS_PER_FRAME];
-    int32_t returnLine;
-    Variable locals[MAX_VARS_PER_FRAME];
-    int32_t localCount;
-};
-struct Snapshot
-{
-    Frame callStack[MAX_STACK_DEPTH];
-    int32_t stackDepth;
-};
 
 Timeline::~Timeline()
 {
@@ -219,13 +196,6 @@ Timeline::~Timeline()
     }
 }
 
-struct TTDBHeader
-{
-    char magic[4]; 
-    int32_t version;
-    int32_t stepCount;
-    int64_t indexOffset;
-};
 void writeHeader(FILE *f, const TTDBHeader &h)
 {
     fwrite(h.magic, 1, 4, f);
@@ -234,16 +204,6 @@ void writeHeader(FILE *f, const TTDBHeader &h)
     
 }
 
-struct FuncEntry
-{
-    string funcName;
-    int64_t byteOffsetInResolveBin;
-};
-struct PendingPatch
-{
-    int64_t byteOffsetOfOffsetField; 
-    string targetFuncName;
-};
 
 // PASS 0x0: READING source.bin + VALIDITY CHECK
 int skipSpaces(const string &line, int i)
