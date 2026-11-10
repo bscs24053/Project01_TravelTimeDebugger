@@ -323,7 +323,27 @@ Testing: all edge cases in tests/edge_cases.sh give the same results as before, 
 - Server Receive stage: listen on a port, receive the upload, check the checksum, call processSource, send the reply
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02 - server Receive stage
+Implementation: server now takes its port as the first argument (default 5001), listens, and serves one client at a time,handleClient reads the upload through TrailerChecker, writes the source to source.bin, checks the checksum at the end, runs processSource, and sends the reply, sendTdbgReply sends [0][session.tdbg][crc32] in chunks, so the file is never fully loaded in memory
+Errors go back as [1][message][crc32] through sendStatusMessage
+Testing: pdf demo (status 0, 368 byte .tdbg), invalid program (status 1 with message), upload with a wrong checksum (status 1, "upload checksum mismatch"), then a good request again to show the server keeps running
 
+# Status - Done
+
+## Design Decisions
+- The server serves one client at a time, because the load balancer sends one client at a time
+- The first byte of the upload is the status byte (0). The last 4 bytes are the CRC-32
+- The source size limit (15 MB) is checked while receiving. If the upload is too big, the extra bytes are read but not written and the server replies "source file is too large"
+- Old source.bin and session.tdbg are deleted at the start of each request so that an old file is never sent by mistake
+- SIGPIPE is ignored so a client that disconnects early does not kill the server
+
+# Next Steps
+- Load balancer (queue, relay, wake up the server)
+- Client
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
