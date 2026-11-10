@@ -284,9 +284,16 @@ void relayOneClient(ClientInfo &c)
 
     int serverSock = connectToServerWithWakeup();
 
-    if(serverSock < 0)
+    if (serverSock < 0)
     {
+        char drain[IO_BUFFER_SIZE];
+
+        while (recv(c.sock, drain, sizeof(drain), 0) > 0)
+        {
+        }
+
         sendError(c.sock, "backend server failed to start");
+        
         return;
     }
 
