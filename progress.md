@@ -497,18 +497,8 @@ Implementation: `printHelp`, `splitWords`, `parsePositive`, `runCommand` and the
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 ## Issues Faced and Fixes
 - 2026-10-07: Compiled binary `test_stack` was committed by mistake. Fixed with `git rm --cached` and a `.gitignore` rule
 - 2026-10-07: `undefined reference to main` while compiling the test: the file had not been saved in VS Code. Fixed by saving and re-running.
 - 2026-10-07: `TimelineNode` was accidentally deleted while replacing the Timeline class in `server.cpp`. Caught with `g++ -fsyntax-only` and restored.
+- 2026-11-10: Initially i planned on making my project work on both, linux and windows and keeping this in view i implemneted phase 01 but due to time constraint, i focused on making sure that my project works on linux at least.

@@ -94,3 +94,32 @@ Source file: at most 15 MB.
 
 - `test_*.cpp` files test each part on its own (stack, timeline, validation, resolve, tokenizer, snapshot, execute, serialization).
 - `tests/edge_cases.sh` runs the full server on many edge cases (run `./server` build first).
+
+
+## Phase 02: Load balancer and client
+
+Linux only. Build:
+
+    g++ -std=c++17 -Wall -Wextra server.cpp -o server
+    g++ -std=c++17 -Wall -Wextra -pthread load_balancer.cpp -o load_balancer
+    g++ -std=c++17 -Wall -Wextra client.cpp -o client
+
+Run (the load balancer starts the server by itself if it is down):
+
+    ./load_balancer 127.0.0.1 5001     # listens on port 5000, server on 5001
+    ./client 127.0.0.1 5000
+
+Client commands: `start <file>`, `next`, `prv`, `jmp next <n>`, `jmp prv <n>`, `help`, `quit`.
+
+Message format on every hop: `[status 1 byte][body][CRC-32, 4 bytes]`. Status 0 = body is the file, status 1 = body is an error message.
+
+### Error cases
+
+| Case | What happens |
+|---|---|
+| Queue full (8 clients waiting) | Client gets "server busy, try again later" and is closed |
+| Server cannot start or connect | Client gets "backend server failed to start" after about 5 seconds |
+| Client waited too long in the queue (30 s) | Socket is closed, no reply |
+| Upload checksum mismatch | Client gets "upload checksum mismatch" |
+| Reply checksum mismatch | Client deletes the file and prints "checksum mismatch, response corrupted" |
+| Bad .tdbg file | Client prints "server sent a damaged .tdbg file" and keeps the old session |
