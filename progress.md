@@ -345,7 +345,29 @@ Testing: pdf demo (status 0, 368 byte .tdbg), invalid program (status 1 with mes
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, load balancer - part 1
+Implementation: Queue<T>, sendError, createListenSocket, connectToServer, startServer(runs ./server <port> & with system()), connectToServerWithWakeup(tries to connect, starts the server if it is down, then retries 50 times with 100 ms between tries) 
+Queue tested (tests/test_queue.cpp)
 
+# Status - Done
+
+## Design Decisions
+- Sockets are created with SOCK_CLOEXEC, so the server started by system() does not inherit the load balancer's listening socket
+- & at the end of the command is needed, otherwise system() waits until the server exits and the load balancer freezes
+- Server host default is 127.0.0.1 
+- Removed the duplicate IO_BUFFER_SIZE and sendAll from load_balancer.cpp, they are in helper.h
+
+## Known Issues
+- system() returns 0 even if ./server does not exist=>it is because the connect retries fail and the client gets "backend server failed to start".
+
+# Next Steps
+- Relay for one client (relayOneClient) with checksum checking
+- acceptLoop, dispatcherLoop, main
+- Client
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
