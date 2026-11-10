@@ -35,18 +35,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "helper.h"
+#include <cstdio>
+#include <ctime>
 using namespace std;
 
 
 // ---- Constants ----
-const char *SERVER_PATH = "./server";      // the program we start when the server is down
-const int IO_BUFFER_SIZE = 64 * 1024;      // fixed buffer for moving bytes
+const char *SERVER_PATH = "./server";      // the program we start when the server is down     
 const int LISTEN_BACKLOG = 16;             // connections the OS holds until accept() takes them
 const int MAX_PENDING_CLIENTS = 8;         // clients allowed to wait in our queue. More than this get "server busy".
 const int STARTUP_MAX_ATTEMPTS = 50;       // after starting the server, how many times we try to connect
 const int STARTUP_POLL_INTERVAL_MS = 100;  // wait between those tries (50 x 100 ms = 5 seconds in total)
 int lbPort = 5000;
-string serverHost = "127.0.0.0";
+string serverHost = "127.0.0.1";
 int serverPort = 5001;
 
 
@@ -68,27 +69,62 @@ public:
     // Implement these functions:
     Queue()
     {
-
+        front = nullptr;
+        rear = nullptr;
+        count = 0;
     }
     ~Queue()
     {
+        while (front != nullptr)
+        {
+            Node *temp = front;
+            front = front->next;
+            delete temp;
+        }
 
     }
     void enqueue(const T &val)
     {
+        Node *n = new Node;
+        n->data = val;
+        n->next = nullptr;
+        if (rear == nullptr)
+        {
+            front = n;
+            rear = n;
+        }
+        else
+        {
+            rear->next = n;
+            rear = n;
+        }
+        count++;
 
     }
     T dequeue()
     {
-
+        if (front == nullptr)
+        {
+            return T();
+        }
+        Node *temp = front;
+        T value = temp->data;
+        front = front->next;
+        if (front == nullptr)
+        {
+            rear = nullptr;
+        }
+        delete temp;
+        count--;
+        return value;
     }
     bool isEmpty()
     {
-        
+        return count == 0;
     }
     int size()
     {
-
+        return count;
     }
 };
 
@@ -105,18 +141,11 @@ Queue<ClientInfo> pendingClients;
 mutex queueMutex;
 sig_atomic_t flag = 1;
 
-
-// ---- Basic socket helpers ----
-bool sendAll(int sock, const char *buf, size_t n) 
-{
-    // Reply format: [status: 1 byte][sending_material][checksum: 4 bytes].
-    // send() may send fewer bytes than asked for, so keep calling it until all n bytes are sent.
-    
-}
 bool sendError(int sock, const string &message)
 {
     // Reply format: [status: 1 byte][payload until close][checksum: 4 bytes].
     // For an error: send one byte with value 1, then the message text. 
+    return sendStatusMessage(sock, 1, message);
 }
 int createListenSocket(int port)
 { 
@@ -124,11 +153,64 @@ int createListenSocket(int port)
     // set SO_REUSEADDR so we can restart the load balancer right away.
     // bind() to the port on any address, then listen(LISTEN_BACKLOG).
     // If bind or listen fails, print the error and exit, because without this socket we cannot work.
+
+    int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+
+    if(s < 0)
+    {
+        perror("socket");
+        exit(1);
+    }
+
+    int yes = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if(bind(s, (sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        perror("bind");
+        exit(1);
+    }
+
+    if(listen(s, LISTEN_BACKLOG) < 0)
+    {
+        perror("listen");
+        exit(1);
+    }
+
+    return s;
 }
 int connectToServer(const char *host, int port)
 {
     // Create a TCP socket (SOCK_CLOEXEC) and connect it to host:port.
     // Return the socket, or -1 if the connection fails 
+    int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if(s < 0)
+    {
+        return -1;
+    }
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+
+    if(inet_pton(AF_INET, host, &addr.sin_addr) != 1)
+    {
+        close(s);
+        return -1;
+    }
+
+    if(connect(s, (sockaddr *)&addr, sizeof(addr)) < 0)
+    {   
+        close(s);
+        return -1;
+    }
+
+    return s;
 }
 
 // =============================================================================================
@@ -142,6 +224,10 @@ bool startServer(int port)
     //   Example: "./server 5001 &"
     // Call system() with it.
     // Return true if system() returned 0, otherwise false.
+
+    string cmd = string(SERVER_PATH) + " " + to_string(port) + " &";
+    return system(cmd.c_str()) == 0;
+
 }
 int connectToServerWithWakeup()
 {
@@ -149,6 +235,30 @@ int connectToServerWithWakeup()
     // 2. Otherwise call startServer(). If it fails, return -1.
     // 3. Try connectToServer() up to STARTUP_MAX_ATTEMPTS times 
     // 4. Return the first working socket, or -1 if the server never came up.
+
+    int s = connectToServer(serverHost.c_str(), serverPort);
+    
+    if(s >= 0)
+    {
+        return s;
+    }
+
+    if(!startServer(serverPort))
+    {
+        return -1;
+    }
+
+    for(int i = 0; i < STARTUP_MAX_ATTEMPTS; i++)
+    {
+        usleep(STARTUP_POLL_INTERVAL_MS * 1000);
+        s = connectToServer(serverHost.c_str(), serverPort);
+        if (s >= 0)
+        {
+            return s;
+        }
+    }
+
+    return -1;
 }
 
 
