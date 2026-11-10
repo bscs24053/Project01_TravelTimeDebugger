@@ -852,34 +852,36 @@ int main(int argc, char *argv[])
     // After the loop: closeSession(session) and return 0.
     // Never exit the loop because of an error. Only quit or the end of the input leaves it.
 
+    if(argc >= 3)
+    {
+        LB_HOST = argv[1];
+        LB_PORT = atoi(argv[2]);
+    }
+
+    signal(SIGPIPE, SIG_IGN);
+
     DebugSession session;
     initSession(session);
 
-    cout << "next without session" << endl;
-    cmdNext(session);
-    cout << "tart with an invalid program" << endl;
-    cmdStart(session, "demo_bad.txt");
-    cout << "start with the demo" << endl;
-    cmdStart(session, "demo_ok.txt");
-    cout << "next, next, prv" << endl;
-    cmdNext(session);
-    cmdNext(session);
-    cmdPrv(session);
-    cout << "jmp next 3, jmp prv 2" << endl;
-    cmdJmpNext(session, 3);
-    cmdJmpPrv(session, 2);
-    cout << "jmp next 10 (too far)" << endl;
-    cmdJmpNext(session, 10);
-    cout << "go back to step 1, then prv once more" << endl;
-    cmdJmpPrv(session, 2);
-    cmdPrv(session);
-    cout << "failed start must keep the old session, then next" << endl;
-    cmdStart(session, "demo_bad.txt");
-    cmdNext(session);
+    cout << "Time-Travel Debugger client (load balancer at " << LB_HOST << ":" << LB_PORT << ")" << endl;
+    printHelp();
+
+    bool quitRequested = false;
+    string line;
+
+    while(!quitRequested)
+    {
+        cout << PROMPT;
+
+        if(!getline(cin, line))
+        {
+            break;   
+        }
+        
+        runCommand(session, line, quitRequested);
+    }
 
     closeSession(session);
-   
     return 0;
 }
-
 

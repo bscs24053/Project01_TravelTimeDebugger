@@ -478,9 +478,22 @@ Testing: command before any start, start with an invalid program, start with the
 - The new .tdbg is downloaded into `ttdb_new.tdbg` first. Only after it opens correctly it replaces the old session and is renamed to `ttdb_last.tdbg`. This keeps the old session safe if the download fails
 
 --------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02 client - command loop
+Implementation: `printHelp`, `splitWords`, `parsePositive`, `runCommand` and the real `main`. `runCommand` accepts `start <file>`, `next`, `prv`, `jmp next <n>`, `jmp prv <n>`, `help`, `quit` and `exit`, with or without the word `ttdb` in front Wrong commands print "unknown command" and the help text, and the loop goes on. `main` takes the load balancer ip and port from the arguments and reads commands until `quit` or the end of the input. This is done and i have tested it with commands
 
+# Status - Done
 
+## Design Decisions
+- n in jmp must be a whole number from 1 to 1000000000. Letters, 0 and negative numbers are rejected with a message.
+- An error never ends the loop. Only `quit`, `exit` or the end of the input does
+- Empty lines are ignored
 
+## Next Steps
+- I still have to test the entire project properly
+- README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
