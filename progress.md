@@ -307,6 +307,45 @@ Testing: server.cpp compiles with -Wall -Wextra with no warnings. All edge cases
 ## Next Steps
 - Server Receive stage: turn Phase 01 main() into processSource(), then read source.bin from the socket
 # --------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, Step 3 (processSource)
+Implementation: The passes that were in main()=>(validate, resolve, execute, writeTdbg) are now in bool processSource(string &err). It returns true when session.tdbg was written. On failure it returns false and puts the error text in err
+main() calls it and prints the error for now. 
+Testing: all edge cases in tests/edge_cases.sh give the same results as before, pdf demo still writes session.tdbg (368 bytes), exit 0
+
+# Status - Done
+
+## Design Decisions
+- The errors are returned as strings instead of being printed in each pass because the server must send them to the client over the socket
+
+## Next Steps
+- Server Receive stage: listen on a port, receive the upload, check the checksum, call processSource, send the reply
+# --------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
