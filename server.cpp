@@ -1265,102 +1265,111 @@ bool readSnapshotAt(const char *path, int32_t n, Snapshot &out, int32_t &totalSt
     return ok;
 }
 
+//runs all the passes on source.bin and writes session.tdbg => returns true if success, else false and puts the msg in err
+bool processSource(string &err)
+{
+    if (!validateProgram("source.bin"))
+    {
+        err = "invalid program (file missing, nested func, or unmatched func/func_end)";
+        return false;
+    }
+
+    int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
+    Timeline timeline;
+    int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
+
+    if (mainOffset < 0)
+    {
+        if(mainOffset == -1)
+        {
+            err = "no main function found";
+        }
+
+        else if(mainOffset == -2)
+        {
+            err = "call to undefined function";
+        }
+
+        else
+        {
+            err = "resolve failed (file error, limit exceeded, or duplicate function)";
+        }
+
+        return false;
+    }
+
+    if(rc != 0)
+    {
+        if(rc == -1)
+        {
+            err = "cannot read resolve.bin";
+        }
+
+        else if(rc == -2)
+        {
+            err = "bad line or unknown instruction";
+        }
+
+        else if(rc == -3)
+        {
+            err = "variable used before it was set";
+        }  
+
+        else if(rc == -4)
+        {
+            err = "divide by zero";
+        }
+
+        else if(rc == -5)
+        {
+            err = "more than 16 variables in one function";
+        }
+
+        else if(rc == -6)
+        {
+            err = "call has a different number of arguments than the function has params";
+        }
+
+        else if(rc == -7)
+        {
+            err = "call stack too deep (more than 64)";
+        }
+        
+        else
+        {
+            err = "execution failed";
+        }
+
+        return false;
+    }
+
+    writeTdbg(timeline, "session.tdbg");
+    return true;
+}
+
 int main()
 {
     FILE *sizeCheck = fopen("source.bin", "rb");
-    if (sizeCheck != nullptr)
+    string err;
+
+    if(sizeCheck != nullptr)
     {
         SEEK64(sizeCheck, 0, SEEK_END);
         int64_t sourceSize = TELL64(sizeCheck);
         fclose(sizeCheck);
-        if (sourceSize > (int64_t)MAX_SOURCE_BYTES)
+
+        if(sourceSize > (int64_t)MAX_SOURCE_BYTES)
         {
             cerr << "Error: source file is too large" << endl;
             return 1;
         }
     }
 
-    if (!validateProgram("source.bin"))
+    if(!processSource(err))
     {
-        cerr << "Error: invalid program (file missing, nested func, or unmatched func/func_end)" << endl;
-        // TODO (Receive stage): send this error to the client instead of printing
-        return 1;
-    }
-
-    int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
-
-    if (mainOffset < 0)
-    {
-        if (mainOffset == -1)
-        {
-            cerr << "Error: no main function found" << endl;
-        }
-
-        else if (mainOffset == -2)
-        {
-            cerr << "Error: call to undefined function" << endl;
-        }
-
-        else
-        {
-            cerr << "Error: resolve failed (file error, limit exceeded, or duplicate function)" << endl;
-        }
-
-        return 1;
-    }
-
-    Timeline timeline;
-    int32_t rc = executeProgram("resolve.bin", mainOffset, timeline);
-
-    if (rc != 0)
-    {
-        if (rc == -1)
-        {
-            cerr << "Error: resolve.bin is unreadable or corrupt" << endl;
-        }
-
-        else if (rc == -2)
-        {
-            cerr << "Error: bad line or unknown instruction" << endl;
-        }
-
-        else if (rc == -3)
-        {
-            cerr << "Error: variable used before it was set" << endl;
-        }
-
-        else if (rc == -4)
-        {
-            cerr << "Error: divide by zero" << endl;
-        }
-
-        else if (rc == -5)
-        {
-            cerr << "Error: more than 16 variables in one function" << endl;
-        }
-
-        else if (rc == -6)
-        {
-            cerr << "Error: call has a different number of arguments than the function has params" << endl;
-        }
-
-        else if (rc == -7)
-        {
-            cerr << "Error: call stack too deep (more than 64)" << endl;
-        }
-
-        return 1;
-    }
-
-    if (!writeTdbg(timeline, "session.tdbg"))
-    {
-        cerr << "Error: could not write session.tdbg" << endl;
+        cerr << "Error: " << err << endl;
         return 1;
     }
 
     return 0;
 }
-
-
-
-
