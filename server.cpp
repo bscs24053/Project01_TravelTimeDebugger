@@ -13,6 +13,13 @@
 #include <cstdio>
 using namespace std;
 #include "helper.h"
+#include <cstdlib>
+#include <cstdio>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 // ---- Constants ----
 const int32_t MAX_FUNCS = 128;
@@ -1334,7 +1341,7 @@ bool processSource(string &err)
         {
             err = "call stack too deep (more than 64)";
         }
-        
+
         else
         {
             err = "execution failed";
@@ -1347,29 +1354,190 @@ bool processSource(string &err)
     return true;
 }
 
-int main()
+void sendTdbgReply(int sock) 
 {
-    FILE *sizeCheck = fopen("source.bin", "rb");
+    FILE *f = fopen("session.tdbg", "rb");
+    char status = 0;
+    Crc32 crc;
+    char buf[IO_BUFFER_SIZE];
+    size_t n;
+    char trailer[4];
+
+    if(f == nullptr)
+    {
+        sendStatusMessage(sock, 1, "server could not read session.tdbg");
+
+        return;
+    }
+
+    crc.update(&status, 1);
+    sendAll(sock, &status, 1);
+
+    while((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    {
+        crc.update(buf, n);
+
+        if(!sendAll(sock, buf, n))
+        {
+            fclose(f);
+            return;
+        }
+    }
+
+    fclose(f);
+
+    putU32(crc.value(), trailer);
+    sendAll(sock, trailer, 4);
+}
+
+void handleClient(int sock)
+{
+    remove("source.bin");
+    remove("session.tdbg");
+
+    FILE *out = fopen("source.bin", "wb");
+    TrailerChecker checker;
+    char in[IO_BUFFER_SIZE];
+    char released[IO_BUFFER_SIZE];
+    bool gotStatus = false;
+    char status = 0;
+    bool tooBig = false;
+    bool recvFailed = false;
+    uint64_t written = 0;
     string err;
 
-    if(sizeCheck != nullptr)
+    if(out == nullptr)
     {
-        SEEK64(sizeCheck, 0, SEEK_END);
-        int64_t sourceSize = TELL64(sizeCheck);
-        fclose(sizeCheck);
+        sendStatusMessage(sock, 1, "server could not create source.bin");
+        return;
+    }
 
-        if(sourceSize > (int64_t)MAX_SOURCE_BYTES)
+    while(true)
+    {
+        ssize_t r = recv(sock, in, sizeof(in), 0);
+
+        if(r < 0)
         {
-            cerr << "Error: source file is too large" << endl;
-            return 1;
+            recvFailed = true;
+            break;
         }
+
+        if(r == 0)
+        {
+            break;
+        }
+
+        size_t n = checker.feed(in, (size_t)r, released);
+        size_t start = 0;
+
+        if(!gotStatus && n > 0)
+        {
+            status = released[0];
+            gotStatus = true;
+            start = 1;
+        }
+
+        size_t body = n - start;
+        written += body;
+
+        if(written > MAX_SOURCE_BYTES)
+        {
+            tooBig = true;
+        }
+
+        else if(body > 0)
+        {
+            fwrite(released + start, 1, body, out);
+        }
+    }
+
+    fclose(out);
+
+    if(recvFailed)
+    {
+        return;   
+    }
+
+    if(!checker.verify())
+    {
+        sendStatusMessage(sock, 1, "upload checksum mismatch");
+        return;
+    }
+
+    if(!gotStatus || status != 0)
+    {
+        sendStatusMessage(sock, 1, "bad request");
+        return;
+    }
+
+    if(tooBig)
+    {
+        sendStatusMessage(sock, 1, "source file is too large");
+        return;
     }
 
     if(!processSource(err))
     {
-        cerr << "Error: " << err << endl;
+        sendStatusMessage(sock, 1, err);
+        return;
+    }
+    
+    sendTdbgReply(sock);
+}
+
+int main(int argc, char *argv[])
+{
+    int port = 5001;
+    int yes = 1;
+    sockaddr_in addr = {};
+
+    if(argc > 1)
+    {
+        port = atoi(argv[1]);
+    }
+
+    signal(SIGPIPE, SIG_IGN);
+
+    int listenSock = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+
+    if(listenSock < 0)
+    {
+        perror("socket");
         return 1;
     }
 
+    setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if(bind(listenSock, (sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        perror("bind");
+        return 1;
+    }
+
+    if(listen(listenSock, 8) < 0)
+    {
+        perror("listen");
+        return 1;
+    }
+
+    cout << "server listening on port " << port << endl;
+
+    while(true)
+    {
+        int client = accept(listenSock, nullptr, nullptr);
+
+        if(client < 0)
+        {
+            perror("accept");
+            continue;
+        }
+
+        handleClient(client);
+        close(client);
+    }
     return 0;
 }
