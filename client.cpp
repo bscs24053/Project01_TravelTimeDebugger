@@ -23,51 +23,20 @@
 #include <vector>
 #include <sys/socket.h>
 #include "helper.h"
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 using namespace std;
 
 // ---- Constants ----
 const char *PROGRAM_NAME = "ttdb";
 const char *PROMPT = "ttdb> ";
-const int IO_BUFFER_SIZE = 64 * 1024;     // fixed buffer for streaming files to and from the socket
 const char *TDBG_FILE = "ttdb_last.tdbg"; // where the downloaded .tdbg is saved
 const int MAX_JUMP = 1000000000;          // biggest n accepted by jmp
-string LB_HOST = "127.0.0.0";
+string LB_HOST = "127.0.0.1";
 int LB_PORT = 5000;
+const int CLIENT_TIMEOUT_SEC = 30;
 
-
-// These two must be the same as in Phase 1
-
-const int MAX_VARS_PER_FRAME = 16;
-const int MAX_STACK_DEPTH = 64;
-
-
-// ---- Structs (same as Phase 1, so the file can be read back exactly as it was written) ----
-struct Variable
-{
-    string name;
-    int32_t value;
-};
-struct Frame
-{
-    string func_name;
-    int32_t argc;
-    Variable argv[MAX_VARS_PER_FRAME];
-    int32_t returnLine;
-    Variable locals[MAX_VARS_PER_FRAME];
-    int32_t localCount;
-};
-struct Snapshot
-{
-    Frame callStack[MAX_STACK_DEPTH];
-    int32_t stackDepth;
-};
-struct TTDBHeader 
-{
-    char magic[4]; // "TTDB"
-    int32_t version;
-    int32_t stepCount;
-    int64_t indexOffset;
-};
 
 // ---- Structs only the client needs ----
 struct TdbgReader
@@ -87,27 +56,94 @@ struct DebugSession
 // PART A: TALKING TO THE LOAD BALANCER
 // =============================================================================================
 
-bool recvAll(int sock, char *buf, size_t n)
-{
-    // recv() can return fewer bytes than asked for, so keep calling it until exactly n bytes are read.
-    // Return false if the connection closes or fails before n bytes arrive.
-}
-bool sendAll(int sock, const char *buf, size_t n)
-{
-    // send() can send fewer bytes than asked for, so keep calling it until all n bytes are sent.
-    // Use the flag MSG_NOSIGNAL. Return false if the connection fails.
-}
 
 int connectToHost(const char *host, int port)
 {
     // Create a TCP socket and connect it to host:port.
     // Return the socket, or -1 if the connection fails.
+
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(s < 0)
+    {
+        return -1;
+    }
+
+    timeval tv;
+    tv.tv_sec = CLIENT_TIMEOUT_SEC;
+    tv.tv_usec = 0;
+
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+
+    if(inet_pton(AF_INET, host, &addr.sin_addr) != 1)
+    {
+        close(s);
+        return -1;
+    }
+
+    if(connect(s, (sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        close(s);
+        return -1;
+    }
+
+    return s;
 }
 bool uploadSource(int sock, const char *sourcePath)
 {
     // have to do checksum and then send
     // When the file is finished, call shutdown(sock, SHUT_WR). This is how the server knows the string is complete.
     // Return false if the file cannot be opened or any send fails.
+
+    FILE *f = fopen(sourcePath, "rb");
+
+    if(f == nullptr)
+    {
+        return false;
+    }
+
+    char status = 0;
+    Crc32 crc;
+
+    crc.update(&status, 1);
+
+    if(!sendAll(sock, &status, 1))
+    {
+        fclose(f);
+        return false;
+    }
+
+    char buf[IO_BUFFER_SIZE];
+    size_t n;
+
+    while((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    {
+        crc.update(buf, n);
+
+        if(!sendAll(sock, buf, n))
+        {
+            fclose(f);
+            return false;
+        }
+    }
+
+    fclose(f);
+
+    char trailer[4];
+    putU32(crc.value(), trailer);
+
+    if(!sendAll(sock, trailer, 4))
+    {
+        return false;
+    }
+
+    shutdown(sock, SHUT_WR);
+
+    return true;
 }
 bool receiveResponse(int sock, const char *outTdbgPath, string &outError)
 {
@@ -116,8 +152,127 @@ bool receiveResponse(int sock, const char *outTdbgPath, string &outError)
     // Status 1: collect the payload into outError. Status 0: write the payload to the file.
     // At the end call verify(). If it fails, delete the file, set outError to
     // "checksum mismatch, response corrupted" and return false.
+
+    TrailerChecker checker;
+    char buf[IO_BUFFER_SIZE];
+    char released[IO_BUFFER_SIZE];
+    bool gotStatus = false;
+    char status = 0;
+    FILE *out = nullptr;
+    string errorText;
+    bool gotAnything = false;
+
+    while(true)
+    {
+        ssize_t r = recv(sock, buf, sizeof(buf), 0);
+
+        if(r < 0)
+        {
+            if(out != nullptr)
+            {
+                fclose(out);
+                remove(outTdbgPath);
+            }
+
+            outError = "no reply from the server (timed out)";
+            return false;
+        }
+
+        if(r == 0)
+        {
+            break;
+        }
+
+        gotAnything = true;
+
+        size_t n = checker.feed(buf, (size_t)r, released);
+        size_t start = 0;
+
+        if(!gotStatus && n > 0)
+        {
+            status = released[0];
+            gotStatus = true;
+            start = 1;
+
+            if(status == 0)
+            {
+                out = fopen(outTdbgPath, "wb");
+
+                if(out == nullptr)
+                {
+                    outError = "cannot write the .tdbg file";
+                    return false;
+                }
+            }
+        }
+
+        if(gotStatus && n > start)
+        {
+            if(status == 0)
+            {
+                fwrite(released + start, 1, n - start, out);
+            }
+
+            else
+            {
+                errorText.append(released + start, n - start);
+            }
+        }
+    }
+
+    if(out != nullptr)
+    {
+        fclose(out);
+    }
+
+    if(!gotAnything)
+    {
+        outError = "no reply (the load balancer closed the connection)";
+        return false;
+    }
+
+    if(!checker.verify())
+    {
+        if(status == 0)
+        {
+            remove(outTdbgPath);
+        }
+
+        outError = "checksum mismatch, response corrupted";
+        return false;
+    }
+
+    if(status != 0)
+    {
+        outError = errorText;
+        return false;
+    }
+
+    return true;
 }
 
+bool requestDebugFile(const char *host, int port, const char *sourcePath, const char *outPath, string &outError)
+{
+    int sock = connectToHost(host, port);
+
+    if(sock < 0)
+    {
+        outError = "cannot connect to the load balancer";
+        return false;
+    }
+
+    if(!uploadSource(sock, sourcePath))
+    {
+        outError = "cannot read or send the source file";
+        close(sock);
+        return false;
+    }
+
+    bool ok = receiveResponse(sock, outPath, outError);
+    close(sock);
+
+    return ok;
+}
 // =============================================================================================
 // PART B: READING THE .tdbg FILE
 // File layout (written by Phase 1):
@@ -223,4 +378,26 @@ int main(int argc, char *argv[])
     // After the loop: closeSession(session) and return 0.
     // Never exit the loop because of an error. Only quit or the end of the input leaves it.
 
+    string err;
+
+    if(argc < 2)
+    {
+        cout << "usage: ./client <source file>" << endl;
+        return 1;
+    }
+
+    if(requestDebugFile("127.0.0.1", 5000, argv[1], TDBG_FILE, err))
+    {
+        cout << "saved " << TDBG_FILE << endl;
+    }
+
+    else
+    {
+        cout << "error: " << err << endl;
+    }
+
+    
+    return 0;
 }
+
+

@@ -412,7 +412,23 @@ Testing: server down (load balancer starts it), server already running, invalid 
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, client - talking to the load balancer
+Implementation: `connectToHost` (waits at most 30 seconds for a reply), `uploadSource` (sends [0][source][crc32], then `shutdown`), `receiveResponse` (checks the checksum, saves the .tdbg file or collects the error text), `requestDebugFile` (connect, upload, receive). The structs and `sendAll`/`recvAll` now come from `helper.h`. I did the testing with a temporary main for now
+Testing: demo program (file saved, 368 bytes), invalid program (error shown), missing source file, load balancer not running
 
+# Status - Done
+
+## Design Decisions
+- The client reads the reply through `TrailerChecker`, so the file is written in chunks. If the checksum is wrong, the file is deleted and the error is "checksum mismatch, response corrupted".
+- If the load balancer closes the connection with no reply,for example, the client waited too long, the client says "no reply".
+
+## Next Steps
+- Read the .tdbg file-part B
+- Commands, printing, main loop
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 
