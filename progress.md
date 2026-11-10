@@ -430,6 +430,23 @@ Testing: demo program (file saved, 368 bytes), invalid program (error shown), mi
 - Testing and README
 # --------------------------------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------------------------------
+# Date: 10/11/26
+Stage: Phase 02, client - opening the .tdbg file
+Implementation: `openTdbg` reads the 20 byte header (magic, version, stepCount, indexOffset), checks it, then reads the index (one 8 byte offset for each snapshot) into a vector. `closeTdbg` closes the file and clears the index. `TdbgReader` now keeps a `FILE *`
+Testing: the demo file (6 steps, indexOffset 320), a file with the wrong magic, a file that is cut short, a file that does not exist
+
+# Status - Done
+
+## Design Decisions
+- `openTdbg` checks the magic "TTDB", the version, that stepCount is at least 1, that the index fits inside the file, and that every offset is inside the snapshot area. A damaged file returns false, so the client can say "server sent a damaged .tdbg file" and keep the old session
+- The file stays open for the whole session, and only the index is kept in memory.
+
+## Next Steps
+- `readSnapshotAt`
+- Session, commands, printing, main loop
+- Testing and README
+# --------------------------------------------------------------------------------------------------------------------
 
 
 

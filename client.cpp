@@ -41,7 +41,7 @@ const int CLIENT_TIMEOUT_SEC = 30;
 // ---- Structs only the client needs ----
 struct TdbgReader
 {
-    ssize_t file_index;
+    FILE *fp;
     TTDBHeader header;
     vector<int64_t> index;
 };
@@ -282,10 +282,94 @@ bool requestDebugFile(const char *host, int port, const char *sourcePath, const 
 
 bool openTdbg(const char *path, TdbgReader &r)
 {
+    r.fp = fopen(path, "rb");
+
+    if(r.fp == nullptr)
+    {
+        return false;
+    }
+
+    bool ok = true;
+
+    if(fread(r.header.magic, 1, 4, r.fp) != 4)
+    {
+        ok = false;
+    }
+
+    else if(fread(&r.header.version, sizeof(int32_t), 1, r.fp) != 1)
+    {
+        ok = false;
+    }
+
+    else if(fread(&r.header.stepCount, sizeof(int32_t), 1, r.fp) != 1)
+    {
+        ok = false;
+    }
+
+    else if(fread(&r.header.indexOffset, sizeof(int64_t), 1, r.fp) != 1)
+    {
+        ok = false;
+    }
+
+    if(ok)
+    {
+        if(r.header.magic[0] != 'T' || r.header.magic[1] != 'T' || r.header.magic[2] != 'D' || r.header.magic[3] != 'B' || r.header.version != 1 || r.header.stepCount < 1)
+        {
+            ok = false;
+        }
+    }
+
+    if(ok)
+    {
+        fseeko(r.fp, 0, SEEK_END);
+        int64_t fileSize = (int64_t)ftello(r.fp);
+        int64_t indexBytes = (int64_t)r.header.stepCount * 8;
+
+        if (r.header.indexOffset < 20 || r.header.indexOffset + indexBytes > fileSize)
+        {
+            ok = false;
+        }
+    }
+
+    if(ok)
+    {
+        fseeko(r.fp, (off_t)r.header.indexOffset, SEEK_SET);
+        r.index.clear();
+
+        for(int32_t i = 0; i < r.header.stepCount; i++)
+        {
+            int64_t off;
+
+            if(fread(&off, sizeof(int64_t), 1, r.fp) != 1 || off < 20 || off >= r.header.indexOffset)
+            {
+                ok = false;
+                break;
+            }
+
+            r.index.push_back(off);
+        }
+    }
+
+    if(!ok)
+    {
+        fclose(r.fp);
+        r.fp = nullptr;
+        r.index.clear();
+        return false;
+    }
+    return true;
 }
+
 void closeTdbg(TdbgReader &r)
 {
     // Free r.index and close the file.
+    if(r.fp != nullptr)
+    {
+        fclose(r.fp);
+        r.fp = nullptr;
+    }
+
+    r.index.clear();
 }
 Snapshot *readSnapshotAt(TdbgReader &r, int32_t step)
 {
@@ -378,23 +462,29 @@ int main(int argc, char *argv[])
     // After the loop: closeSession(session) and return 0.
     // Never exit the loop because of an error. Only quit or the end of the input leaves it.
 
-    string err;
-
+ 
     if(argc < 2)
     {
-        cout << "usage: ./client <source file>" << endl;
+        cout << "usage: ./client <file.tdbg>" << endl;
         return 1;
     }
 
-    if(requestDebugFile("127.0.0.1", 5000, argv[1], TDBG_FILE, err))
+    TdbgReader r;
+    r.fp = nullptr;
+
+    if(!openTdbg(argv[1], r))
     {
-        cout << "saved " << TDBG_FILE << endl;
+        cout << "open failed" << endl;
+        return 1;
     }
 
-    else
-    {
-        cout << "error: " << err << endl;
-    }
+    cout << "steps: " << r.header.stepCount << endl;
+    cout << "indexOffset: " << r.header.indexOffset << endl;
+    cout << "first offset: " << r.index[0] << endl;
+    cout << "last offset: " << r.index[r.index.size() - 1] << endl;
+    
+    closeTdbg(r);
+   
 
     
     return 0;
